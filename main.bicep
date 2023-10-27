@@ -6,8 +6,31 @@ param workload string
 @description('Location for resources within the resource group')
 param location string = resourceGroup().location
 
+@description('Array of file shares to create in the storage account')
+param fileShares array
+
 var tags = {
   workload: workload
+}
+
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
+  name: replace(workload, '-', '')
+  location: location
+  kind: 'StorageV2'
+  sku: {
+    name: 'Standard_LRS'
+  }
+
+  resource fileServices 'fileServices' = {
+    name: 'default'
+
+    resource share 'shares' = [for share in fileShares: {
+      name: share.name
+      properties: {
+        shareQuota: share.quota
+      }
+    }]
+  }
 }
 
 resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
@@ -34,4 +57,16 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01'
       }
     }
   }
+  
+  resource storage 'storages' = [for share in fileShares: {
+    name: share.name
+    properties: {
+      azureFile: {
+        accessMode: 'ReadWrite'
+        accountKey: storageAccount.listKeys().keys[0].value
+        accountName: storageAccount.name
+        shareName: share.name
+      }
+    }
+  }]
 }
