@@ -16,3 +16,15 @@ param fileShares = [
     quota: 1
   }
 ]
+
+param containerRegistryName = 'snakebyte'
+param containerRegistryResourceGroup = 'snakebyte-core-rg'
+param containerDefinitions = [
+  {
+    name: 'mail'
+    imageName: 'bytemark/smtp'
+    imageTag: 'latest'
+    cpuCores: '0.25'
+    memory: '0.5Gi'
+  }
+]

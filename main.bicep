@@ -9,8 +9,26 @@ param location string = resourceGroup().location
 @description('Array of file shares to create in the storage account')
 param fileShares array
 
+@description('Name of the container registry')
+param containerRegistryName string
+
+@description('Container registry resource group')
+param containerRegistryResourceGroup string
+
+@description('Array of container definitions')
+param containerDefinitions array
+
 var tags = {
   workload: workload
+}
+
+module registryCacheRules 'registryCacheRules.bicep' = {
+  name: 'registryCacheRules-${workload}'
+  scope: resourceGroup(containerRegistryResourceGroup)
+  params: {
+    containerRegistryName: containerRegistryName
+    containerDefinitions: containerDefinitions
+  }
 }
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
@@ -44,6 +62,12 @@ resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10
   }
 }
 
+resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${workload}-id'
+  location: location
+  tags: tags
+}
+
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01' = {
   name: '${workload}-cae'
   location: location
@@ -57,7 +81,7 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01'
       }
     }
   }
-  
+
   resource storage 'storages' = [for share in fileShares: {
     name: share.name
     properties: {
@@ -69,4 +93,49 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01'
       }
     }
   }]
+}
+
+resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
+  name: '${workload}-ca'
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: containerAppsEnvironment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: true
+        targetPort: 8000
+        allowInsecure: false
+        traffic: [
+          {
+            latestRevision: true
+            weight: 100
+          }
+        ]
+      }
+      registries: [
+        {
+          server: registryCacheRules.outputs.registryLoginServer
+          identity: managedIdentity.id
+        }
+      ]
+    }
+    template: {
+      containers: [for definition in containerDefinitions: {
+        name: definition.name
+        image: '${registryCacheRules.outputs.registryLoginServer}/${definition.imageName}:${definition.imageTag}'
+        resources: {
+          cpu: json(definition.cpuCores)
+          memory: definition.memory
+        }
+      }]
+    }
+  }
 }
