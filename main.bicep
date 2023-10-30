@@ -15,9 +15,6 @@ param containerRegistryName string
 @description('Container registry resource group')
 param containerRegistryResourceGroup string
 
-@description('Array of container definitions')
-param containerDefinitions array
-
 var tags = {
   workload: workload
 }
@@ -27,7 +24,10 @@ module registryCacheRules 'registryCacheRules.bicep' = {
   scope: resourceGroup(containerRegistryResourceGroup)
   params: {
     containerRegistryName: containerRegistryName
-    containerDefinitions: containerDefinitions
+    containerImages: [
+      'bytemark/smtp'
+      'library/postgres'
+    ]
   }
 }
 
@@ -96,7 +96,7 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01'
     name: share.name
     properties: {
       azureFile: {
-        accessMode: 'ReadWrite'
+        accessMode: share.isReadOnly ? 'ReadOnly' : 'ReadWrite'
         accountKey: storageAccount.listKeys().keys[0].value
         accountName: storageAccount.name
         shareName: share.name
@@ -136,15 +136,52 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           identity: managedIdentity.id
         }
       ]
+      secrets: [
+        {
+          name: 'postgres-password'
+          value: uniqueString(resourceGroup().id)
+        }
+      ]
     }
     template: {
-      containers: [for definition in containerDefinitions: {
-        name: definition.name
-        image: '${registryCacheRules.outputs.registryLoginServer}/${definition.imageName}:${definition.imageTag}'
-        resources: {
-          cpu: json(definition.cpuCores)
-          memory: definition.memory
+      containers: [
+        {
+          name: 'mail'
+          image: '${registryCacheRules.outputs.registryLoginServer}/bytemark/smtp:latest'
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
         }
+        {
+          name: 'main-db'
+          image: '${registryCacheRules.outputs.registryLoginServer}/library/postgres:14-alpine'
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'POSTGRES_PASSWORD'
+              secretRef: 'postgres-password'
+            }
+          ]
+          volumeMounts: [
+            {
+              volumeName: 'postgres-data'
+              mountPath: '/var/lib/postgresql/data'
+            }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 0
+        maxReplicas: 1
+      }
+      volumes: [for share in fileShares: {
+        name: share.name
+        storageName: share.name
+        storageType: 'AzureFile'
       }]
     }
   }

@@ -3,16 +3,17 @@ targetScope = 'resourceGroup'
 @description('Name of the Azure Container Registry')
 param containerRegistryName string
 
-param containerDefinitions array
+@description('Array of Docker Hub container images to cache in the Azure Container Registry')
+param containerImages array
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: containerRegistryName
 
-  resource cacheRules 'cacheRules' = [for definition in containerDefinitions: {
-    name: '${replace(definition.imageName, '/', '-')}-cache'
+  resource cacheRules 'cacheRules' = [for image in containerImages: {
+    name: '${replace(image, '/', '-')}-cache'
     properties: {
-      sourceRepository: 'docker.io/${definition.imageName}'
-      targetRepository: definition.imageName
+      sourceRepository: 'docker.io/${image}'
+      targetRepository: image
     }
   }]
 }
