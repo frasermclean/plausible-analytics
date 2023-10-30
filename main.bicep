@@ -41,6 +41,16 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
 
   resource fileServices 'fileServices' = {
     name: 'default'
+    properties: {
+      protocolSettings: {
+        smb: { // apply maximum security settings
+          authenticationMethods: 'Kerberos'
+          channelEncryption: 'AES-256-GCM'
+          kerberosTicketEncryption: 'AES-256'
+          versions: 'SMB3.1.1'
+        }
+      }
+    }
 
     resource share 'shares' = [for share in fileShares: {
       name: share.name
